@@ -1,0 +1,201 @@
+<!doctype html>
+<html lang="vi" data-theme="dark">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark light">
+    <meta
+      name="description"
+      content="Thư viện manga cá nhân chạy hoàn toàn trên máy."
+    >
+    <title>Yoru — Thư viện manga</title>
+    <script>
+      (() => {
+        try {
+          const manual = localStorage.getItem("yoru.theme-override.v2");
+          const system = matchMedia("(prefers-color-scheme: light)").matches
+            ? "light"
+            : "dark";
+          document.documentElement.dataset.theme = manual || system;
+        } catch (_error) {
+          document.documentElement.dataset.theme = matchMedia(
+            "(prefers-color-scheme: light)",
+          ).matches
+            ? "light"
+            : "dark";
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Đi tới nội dung</a>
+
+    <header class="topbar">
+      <div class="topbar__inner shell">
+        <button class="brand" id="brand-button" type="button" aria-label="Về thư viện">
+          <span class="brand__mark" aria-hidden="true">夜</span>
+          <span>
+            <strong>Yoru</strong>
+            <small>Cloud manga library</small>
+          </span>
+        </button>
+
+        <div class="topbar__actions" aria-label="Tùy chỉnh hiển thị">
+          <button
+            class="control-button"
+            id="reading-mode-toggle"
+            type="button"
+            aria-pressed="false"
+            title="Giảm ánh sáng xanh và contrast"
+          >
+            <span aria-hidden="true">◐</span>
+            <span class="control-button__label">Dịu mắt</span>
+          </button>
+          <button
+            class="control-button control-button--icon"
+            id="theme-toggle"
+            type="button"
+            aria-label="Chuyển sang giao diện sáng"
+            title="Đổi light/dark theme"
+          >
+            <span id="theme-icon" aria-hidden="true">☀</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content">
+      <section class="home-view" id="home-view">
+        <div class="hero shell">
+          <div class="hero__copy">
+            <p class="eyebrow">Thư viện trên cloud của bạn</p>
+            <h1>Một góc yên<br>để đọc chậm lại.</h1>
+            <p class="hero__description">
+              Đọc thư viện cá nhân từ Cloudflare R2, không quảng cáo.
+            </p>
+          </div>
+          <div class="hero__stats" aria-label="Thống kê thư viện">
+            <div>
+              <strong id="series-count">0</strong>
+              <span>Bộ truyện</span>
+            </div>
+            <div>
+              <strong id="chapter-count">0</strong>
+              <span>Chapter</span>
+            </div>
+            <div>
+              <strong id="page-count">0</strong>
+              <span>Trang</span>
+            </div>
+          </div>
+        </div>
+
+        <section class="library-section shell" aria-labelledby="library-title">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Bộ sưu tập</p>
+              <h2 id="library-title">Thư viện manga</h2>
+            </div>
+            <div class="library-actions">
+              <button
+                class="refresh-library"
+                id="refresh-library"
+                type="button"
+                title="Quét lại folder library"
+              >
+                <span class="refresh-library__icon" aria-hidden="true">↻</span>
+                <span>Nạp lại</span>
+              </button>
+              <label class="search-box">
+                <span aria-hidden="true">⌕</span>
+                <span class="sr-only">Tìm truyện</span>
+                <input
+                  id="search-input"
+                  type="search"
+                  placeholder="Tìm trong thư viện…"
+                  autocomplete="off"
+                >
+              </label>
+            </div>
+          </div>
+
+          <div class="gallery" id="manga-gallery" aria-live="polite"></div>
+
+          <div class="empty-state" id="empty-state" hidden>
+            <span aria-hidden="true">◇</span>
+            <h3>Không tìm thấy truyện</h3>
+            <p>Thử một từ khóa khác hoặc cập nhật lại dữ liệu thư viện.</p>
+          </div>
+        </section>
+      </section>
+
+      <section class="reader-view" id="reader-view" hidden>
+        <div class="reader-progress" id="reader-progress" aria-hidden="true"></div>
+
+        <header class="reader-toolbar">
+          <div class="reader-toolbar__inner shell shell--wide">
+            <button class="reader-back" id="reader-back" type="button">
+              <span aria-hidden="true">←</span>
+              <span>Thư viện</span>
+            </button>
+
+            <div class="reader-title-block">
+              <strong id="reader-series-title">Tên truyện</strong>
+              <span id="reader-page-status">Trang 1 / 1</span>
+            </div>
+
+            <div class="reader-controls">
+              <button
+                class="reader-icon-button"
+                id="reader-width-down"
+                type="button"
+                aria-label="Thu nhỏ trang truyện"
+                title="Thu nhỏ"
+              >−</button>
+              <span class="reader-width-value" id="reader-width-value">920px</span>
+              <button
+                class="reader-icon-button"
+                id="reader-width-up"
+                type="button"
+                aria-label="Phóng lớn trang truyện"
+                title="Phóng lớn"
+              >+</button>
+              <label class="chapter-select-wrap">
+                <span class="sr-only">Chọn chapter</span>
+                <select id="chapter-select" aria-label="Chọn chapter"></select>
+              </label>
+            </div>
+          </div>
+        </header>
+
+        <div class="reader-stage" id="reader-stage">
+          <div class="reader-pages" id="reader-pages"></div>
+        </div>
+
+        <nav class="chapter-nav shell" aria-label="Điều hướng chapter">
+          <button id="previous-chapter" type="button">
+            <span aria-hidden="true">←</span>
+            <span>
+              <small>Chapter trước</small>
+              <strong id="previous-label">—</strong>
+            </span>
+          </button>
+          <button id="next-chapter" type="button">
+            <span>
+              <small>Chapter tiếp</small>
+              <strong id="next-label">—</strong>
+            </span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </nav>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script src="config.js"></script>
+    <script src="library-data.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
