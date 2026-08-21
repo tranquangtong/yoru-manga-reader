@@ -8,3 +8,4 @@ Thumbs.db
 library/
 __pycache__/
 *.pyc
+.wrangler/
