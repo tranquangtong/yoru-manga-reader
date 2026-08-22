@@ -20,6 +20,13 @@ R2 không được đưa vào Git.
 
 ## Cập nhật chapter sau này
 
+Cách nhanh nhất sau khi thêm, sửa hoặc xóa truyện/chapter là double-click
+`Update UI - Windows.cmd`. Trên macOS, chạy `Update UI - macOS.command`.
+Tool sẽ quét lại `library`, chỉ tạo commit khi danh mục thực sự thay đổi, rồi push
+`library-data.js` lên GitHub Pages. Việc xóa khỏi UI không xóa object cũ trên R2.
+
+Nếu vừa thêm ảnh mới, upload R2 trước rồi mới chạy updater UI:
+
 ```powershell
 .\scripts\upload-library-to-r2.ps1 `
   -Destination "r2:yoru-manga/library" `
