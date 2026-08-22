@@ -15,6 +15,7 @@
   let seriesList = Array.isArray(libraryPayload.series)
     ? libraryPayload.series
     : [];
+  let coverRevision = libraryPayload.generatedAt || Date.now();
 
   const elements = {
     body: document.body,
@@ -98,7 +99,7 @@
     return 2;
   }
 
-  function assetUrl(relativePath) {
+  function assetUrl(relativePath, revision = "") {
     const encodedPath = String(relativePath)
       .split("/")
       .map((segment) => encodeURIComponent(segment))
@@ -107,21 +108,30 @@
       /\/?$/,
       "/",
     );
-    return `${baseUrl}${encodedPath}`;
+    const url = `${baseUrl}${encodedPath}`;
+    return revision ? `${url}?v=${encodeURIComponent(revision)}` : url;
   }
 
   function loadStaticLibrary() {
     return new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = `library-data.js?time=${Date.now()}`;
-      script.onload = () => resolve(window.MANGA_LIBRARY || { series: [] });
-      script.onerror = () => reject(new Error("Không thể tải library-data.js"));
+      script.onload = () => {
+        const payload = window.MANGA_LIBRARY || { series: [] };
+        script.remove();
+        resolve(payload);
+      };
+      script.onerror = () => {
+        script.remove();
+        reject(new Error("Không thể tải library-data.js"));
+      };
       document.head.append(script);
     });
   }
 
   function replaceLibrary(runtimeLibrary) {
-    seriesList = runtimeLibrary.series;
+    seriesList = Array.isArray(runtimeLibrary.series) ? runtimeLibrary.series : [];
+    coverRevision = Date.now();
     updateStats();
     showHome();
   }
@@ -141,9 +151,7 @@
     try {
       if (hostingConfig.staticLibrary) {
         const payload = await loadStaticLibrary();
-        replaceLibrary({
-          series: Array.isArray(payload.series) ? payload.series : [],
-        });
+        replaceLibrary(payload);
         const chapterTotal = seriesList.reduce(
           (total, series) => total + series.chapters.length,
           0,
@@ -163,9 +171,7 @@
       });
       if (!response.ok) throw new Error(`Không thể quét thư viện (${response.status})`);
       const payload = await response.json();
-      replaceLibrary({
-        series: Array.isArray(payload.series) ? payload.series : [],
-      });
+      replaceLibrary(payload);
       const chapterTotal = seriesList.reduce(
         (total, series) => total + series.chapters.length,
         0,
@@ -296,7 +302,7 @@
       coverButton.setAttribute("aria-label", `Mở ${series.displayTitle}`);
 
       const cover = document.createElement("img");
-      cover.src = assetUrl(series.cover);
+      cover.src = assetUrl(series.cover, coverRevision);
       cover.alt = `Ảnh đại diện ${series.displayTitle}`;
       cover.loading = "lazy";
       cover.decoding = "async";
