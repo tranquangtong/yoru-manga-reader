@@ -15,7 +15,10 @@ UI_DIR = Path(__file__).resolve().parent.parent
 LIBRARY_DIR = UI_DIR.parent / "library"
 OUTPUT_FILE = UI_DIR / "library-data.js"
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif"}
-YEAR_PREFIX_RE = re.compile(r"^(?P<years>\d{4}(?:-\d{4})?)\s+(?P<title>.+)$")
+YEAR_PREFIX_RE = re.compile(
+    r"^(?P<years>\d{4}(?:-(?:\d{4}|now|present|nay))?)\s+(?P<title>.+)$",
+    re.IGNORECASE,
+)
 CHAPTER_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 CHAPTER_FOLDER_RE = re.compile(r"^chap(?:ter)?\s*\d", re.IGNORECASE)
 COVER_FOLDER_NAMES = {
