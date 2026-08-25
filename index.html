@@ -67,30 +67,6 @@
 
     <main id="main-content">
       <section class="home-view" id="home-view">
-        <div class="hero shell">
-          <div class="hero__copy">
-            <p class="eyebrow">Thư viện trên cloud của bạn</p>
-            <h1>Một góc yên<br>để đọc chậm lại.</h1>
-            <p class="hero__description">
-              Đọc thư viện cá nhân từ Cloudflare R2, không quảng cáo.
-            </p>
-          </div>
-          <div class="hero__stats" aria-label="Thống kê thư viện">
-            <div>
-              <strong id="series-count">0</strong>
-              <span>Bộ truyện</span>
-            </div>
-            <div>
-              <strong id="chapter-count">0</strong>
-              <span>Chapter</span>
-            </div>
-            <div>
-              <strong id="page-count">0</strong>
-              <span>Trang</span>
-            </div>
-          </div>
-        </div>
-
         <section class="library-section shell" aria-labelledby="library-title">
           <div class="section-heading">
             <div>
@@ -133,38 +109,45 @@
       <section class="reader-view" id="reader-view" hidden>
         <div class="reader-progress" id="reader-progress" aria-hidden="true"></div>
 
-        <header class="reader-toolbar">
-          <div class="reader-toolbar__inner shell shell--wide">
-            <button class="reader-back" id="reader-back" type="button">
-              <span aria-hidden="true">←</span>
-              <span>Thư viện</span>
+        <header class="reader-toolbar" aria-label="Công cụ đọc truyện">
+          <div class="reader-menu" id="reader-menu">
+            <button
+              class="reader-menu__toggle"
+              id="reader-menu-toggle"
+              type="button"
+              aria-expanded="false"
+              aria-controls="reader-menu-panel"
+            >
+              <span class="sr-only">Mở menu đọc truyện</span>
+              <span class="reader-menu__icon" aria-hidden="true">☰</span>
             </button>
 
-            <div class="reader-title-block">
-              <strong id="reader-series-title">Tên truyện</strong>
-              <span id="reader-page-status">Trang 1 / 1</span>
-            </div>
+            <div class="reader-menu__panel" id="reader-menu-panel" hidden>
+              <div class="reader-title-block">
+                <strong id="reader-series-title">Tên truyện</strong>
+                <span id="reader-page-status">Trang 1 / 1</span>
+              </div>
 
-            <div class="reader-controls">
-              <button
-                class="reader-icon-button"
-                id="reader-width-down"
-                type="button"
-                aria-label="Thu nhỏ trang truyện"
-                title="Thu nhỏ"
-              >−</button>
-              <span class="reader-width-value" id="reader-width-value">920px</span>
-              <button
-                class="reader-icon-button"
-                id="reader-width-up"
-                type="button"
-                aria-label="Phóng lớn trang truyện"
-                title="Phóng lớn"
-              >+</button>
-              <label class="chapter-select-wrap">
-                <span class="sr-only">Chọn chapter</span>
-                <select id="chapter-select" aria-label="Chọn chapter"></select>
-              </label>
+              <button class="reader-back" id="reader-back" type="button">
+                <span aria-hidden="true">←</span>
+                <span>Thư viện</span>
+              </button>
+
+              <div class="reader-controls">
+                <label class="chapter-select-wrap">
+                  <span>Chapter</span>
+                  <select id="chapter-select" aria-label="Chọn chapter"></select>
+                </label>
+
+                <div class="reader-width-control">
+                  <span>Độ rộng trang</span>
+                  <div class="reader-width-buttons">
+                    <button class="reader-icon-button" id="reader-width-down" type="button" aria-label="Thu nhỏ trang truyện">−</button>
+                    <span class="reader-width-value" id="reader-width-value">920px</span>
+                    <button class="reader-icon-button" id="reader-width-up" type="button" aria-label="Phóng lớn trang truyện">+</button>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </header>

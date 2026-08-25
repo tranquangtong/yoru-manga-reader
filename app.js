@@ -25,9 +25,10 @@
     readingModeToggle: document.querySelector("#reading-mode-toggle"),
     homeView: document.querySelector("#home-view"),
     readerView: document.querySelector("#reader-view"),
-    seriesCount: document.querySelector("#series-count"),
-    chapterCount: document.querySelector("#chapter-count"),
-    pageCount: document.querySelector("#page-count"),
+    readerMenu: document.querySelector("#reader-menu"),
+    readerMenuToggle: document.querySelector("#reader-menu-toggle"),
+    readerMenuIcon: document.querySelector(".reader-menu__icon"),
+    readerMenuPanel: document.querySelector("#reader-menu-panel"),
     refreshLibrary: document.querySelector("#refresh-library"),
     searchInput: document.querySelector("#search-input"),
     gallery: document.querySelector("#manga-gallery"),
@@ -132,7 +133,6 @@
   function replaceLibrary(runtimeLibrary) {
     seriesList = Array.isArray(runtimeLibrary.series) ? runtimeLibrary.series : [];
     coverRevision = Date.now();
-    updateStats();
     showHome();
   }
 
@@ -197,6 +197,22 @@
     }, 1800);
   }
 
+  function setReaderMenuOpen(isOpen) {
+    const open = Boolean(isOpen && state.currentSeries);
+    elements.readerMenuPanel.hidden = !open;
+    elements.readerMenu.classList.toggle("is-open", open);
+    elements.readerMenuToggle.setAttribute("aria-expanded", String(open));
+    elements.readerMenuToggle.title = open ? "Đóng menu đọc truyện" : "Mở menu đọc truyện";
+    elements.readerMenuToggle.querySelector(".sr-only").textContent = open
+      ? "Đóng menu đọc truyện"
+      : "Mở menu đọc truyện";
+    elements.readerMenuIcon.textContent = open ? "×" : "☰";
+  }
+
+  function toggleReaderMenu() {
+    setReaderMenuOpen(elements.readerMenuPanel.hidden);
+  }
+
   function systemTheme() {
     return systemThemeQuery.matches ? "light" : "dark";
   }
@@ -240,25 +256,6 @@
     elements.readingModeToggle.setAttribute("aria-pressed", String(enabled));
     writeStorage(STORAGE.readingMode, String(enabled));
     showToast(enabled ? "Đã bật chế độ dịu mắt" : "Đã tắt chế độ dịu mắt");
-  }
-
-  function updateStats() {
-    const chapters = seriesList.reduce(
-      (total, series) => total + series.chapters.length,
-      0,
-    );
-    const pages = seriesList.reduce(
-      (seriesTotal, series) =>
-        seriesTotal +
-        series.chapters.reduce(
-          (chapterTotal, chapter) => chapterTotal + chapter.pages.length,
-          0,
-        ),
-      0,
-    );
-    elements.seriesCount.textContent = formatNumber(seriesList.length);
-    elements.chapterCount.textContent = formatNumber(chapters);
-    elements.pageCount.textContent = formatNumber(pages);
   }
 
   function createElement(tag, className, text) {
@@ -356,6 +353,7 @@
   }
 
   function showHome() {
+    setReaderMenuOpen(false);
     disconnectPageObserver();
     state.currentSeries = null;
     elements.readerView.hidden = true;
@@ -431,6 +429,7 @@
   }
 
   function renderReader(series, chapterIndex) {
+    setReaderMenuOpen(false);
     const safeIndex = Math.max(0, Math.min(chapterIndex, series.chapters.length - 1));
     const chapter = series.chapters[safeIndex];
     const progressMap = getProgressMap();
@@ -541,6 +540,15 @@
 
   elements.themeToggle.addEventListener("click", toggleTheme);
   elements.readingModeToggle.addEventListener("click", toggleReadingMode);
+  elements.readerMenuToggle.addEventListener("click", toggleReaderMenu);
+  document.addEventListener("click", (event) => {
+    if (
+      !elements.readerMenuPanel.hidden
+      && !elements.readerMenu.contains(event.target)
+    ) {
+      setReaderMenuOpen(false);
+    }
+  });
   elements.brandButton.addEventListener("click", goHome);
   elements.readerBack.addEventListener("click", goHome);
   elements.searchInput.addEventListener("input", (event) => {
@@ -574,13 +582,15 @@
     if (event.key.toLocaleLowerCase() === "t") toggleTheme();
     if (event.key.toLocaleLowerCase() === "r") toggleReadingMode();
     if (!state.currentSeries) return;
-    if (event.key === "Escape") goHome();
+    if (event.key === "Escape" && !elements.readerMenuPanel.hidden) {
+      setReaderMenuOpen(false);
+      return;
+    }
     if (event.key === "ArrowLeft") changeChapter(-1);
     if (event.key === "ArrowRight") changeChapter(1);
   });
 
   initializeTheme();
-  updateStats();
   renderGallery();
   applyReaderWidth();
   routeFromHash();
