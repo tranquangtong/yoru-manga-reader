@@ -8,6 +8,7 @@
     readerWidth: "yoru.reader-width.v1",
   };
   const READER_WIDTHS = [720, 820, 920, 1040, 1160];
+  const LIBRARY_REFRESH_INTERVAL = 5 * 60 * 1000;
   const systemThemeQuery = window.matchMedia("(prefers-color-scheme: light)");
   const hostingConfig = window.YORU_CONFIG || {};
 
@@ -16,6 +17,10 @@
     ? libraryPayload.series
     : [];
   let coverRevision = libraryPayload.generatedAt || Date.now();
+  let seriesSignature = JSON.stringify(seriesList);
+  let staticLibraryRequest = null;
+  const coverChecks = new Map();
+  const galleryCards = new Map();
 
   const elements = {
     body: document.body,
@@ -57,6 +62,7 @@
     readerWidthIndex: getStoredReaderWidthIndex(),
     toastTimer: null,
     refreshingLibrary: false,
+    pendingLibraryRefresh: null,
   };
 
   function readStorage(key) {
@@ -114,7 +120,8 @@
   }
 
   function loadStaticLibrary() {
-    return new Promise((resolve, reject) => {
+    if (staticLibraryRequest) return staticLibraryRequest;
+    staticLibraryRequest = new Promise((resolve, reject) => {
       const script = document.createElement("script");
       script.src = `library-data.js?time=${Date.now()}`;
       script.onload = () => {
@@ -127,13 +134,90 @@
         reject(new Error("Không thể tải library-data.js"));
       };
       document.head.append(script);
+    }).finally(() => {
+      staticLibraryRequest = null;
     });
+    return staticLibraryRequest;
   }
 
-  function replaceLibrary(runtimeLibrary) {
-    seriesList = Array.isArray(runtimeLibrary.series) ? runtimeLibrary.series : [];
+  function retryFailedCovers() {
+    for (const series of seriesList) {
+      const check = coverChecks.get(series.id);
+      if (!check?.failed || check.path !== series.cover || check.probe) continue;
+
+      const revision = Date.now();
+      const probe = new Image();
+      check.probe = probe;
+      probe.onerror = () => {
+        check.probe = null;
+      };
+      probe.onload = () => {
+        check.probe = null;
+        if (coverChecks.get(series.id) !== check) return;
+        check.failed = false;
+        check.revision = revision;
+        const card = galleryCards.get(series.id);
+        if (!state.currentSeries && card) {
+          card.cover.src = probe.src;
+          card.article.hidden = false;
+          updateGalleryEmptyState();
+        }
+      };
+      probe.src = assetUrl(series.cover, revision);
+    }
+  }
+
+  function applyLibraryRefresh({ payload, automatic }) {
+    const nextSeries = Array.isArray(payload.series) ? payload.series : [];
+    const signature = JSON.stringify(nextSeries);
+    if (automatic && signature === seriesSignature) {
+      retryFailedCovers();
+      return false;
+    }
+
+    seriesList = nextSeries;
+    seriesSignature = signature;
     coverRevision = Date.now();
-    showHome();
+    if (automatic) {
+      const currentCovers = new Map(seriesList.map((series) => [series.id, series.cover]));
+      for (const [id, check] of coverChecks) {
+        if (currentCovers.get(id) !== check.path) coverChecks.delete(id);
+      }
+      retryFailedCovers();
+      showToast(`Thư viện đã cập nhật: ${seriesList.length} bộ truyện`);
+    } else {
+      coverChecks.clear();
+      const chapterTotal = seriesList.reduce(
+        (total, series) => total + series.chapters.length,
+        0,
+      );
+      showToast(`Đã nạp ${seriesList.length} bộ truyện · ${chapterTotal} chapter`);
+    }
+    return true;
+  }
+
+  function receiveLibrary(payload, automatic = false) {
+    const refresh = { payload, automatic };
+    if (state.currentSeries) {
+      state.pendingLibraryRefresh = refresh;
+      return;
+    }
+    if (!applyLibraryRefresh(refresh)) return;
+    if (automatic) {
+      renderGallery(elements.searchInput.value);
+    } else {
+      showHome();
+    }
+  }
+
+  async function autoRefreshLibrary() {
+    if (state.refreshingLibrary) return;
+    try {
+      const payload = await loadStaticLibrary();
+      if (!state.refreshingLibrary) receiveLibrary(payload, true);
+    } catch (_error) {
+      // Keep the current library when a background refresh fails.
+    }
   }
 
   function setRefreshState(isLoading) {
@@ -150,15 +234,7 @@
     setRefreshState(true);
     try {
       if (hostingConfig.staticLibrary) {
-        const payload = await loadStaticLibrary();
-        replaceLibrary(payload);
-        const chapterTotal = seriesList.reduce(
-          (total, series) => total + series.chapters.length,
-          0,
-        );
-        showToast(
-          `Đã nạp ${seriesList.length} bộ truyện · ${chapterTotal} chapter`,
-        );
+        receiveLibrary(await loadStaticLibrary());
         return;
       }
       if (window.location.protocol === "file:") {
@@ -170,13 +246,7 @@
         cache: "no-store",
       });
       if (!response.ok) throw new Error(`Không thể quét thư viện (${response.status})`);
-      const payload = await response.json();
-      replaceLibrary(payload);
-      const chapterTotal = seriesList.reduce(
-        (total, series) => total + series.chapters.length,
-        0,
-      );
-      showToast(`Đã nạp ${seriesList.length} bộ truyện · ${chapterTotal} chapter`);
+      receiveLibrary(await response.json());
     } catch (error) {
       showToast(error?.message || "Không thể nạp lại thư viện");
     } finally {
@@ -282,6 +352,12 @@
     }
   }
 
+  function updateGalleryEmptyState() {
+    elements.emptyState.hidden = Boolean(
+      elements.gallery.querySelector(".manga-card:not([hidden])"),
+    );
+  }
+
   function renderGallery(filterText = "") {
     const query = filterText.trim().toLocaleLowerCase("vi");
     const progressMap = getProgressMap();
@@ -290,7 +366,7 @@
     );
 
     elements.gallery.replaceChildren();
-    elements.emptyState.hidden = filtered.length > 0;
+    galleryCards.clear();
 
     for (const series of filtered) {
       const article = createElement("article", "manga-card");
@@ -299,10 +375,20 @@
       coverButton.setAttribute("aria-label", `Mở ${series.displayTitle}`);
 
       const cover = document.createElement("img");
-      cover.src = assetUrl(series.cover, coverRevision);
+      const check = coverChecks.get(series.id);
+      article.hidden = Boolean(check?.failed);
       cover.alt = `Ảnh đại diện ${series.displayTitle}`;
       cover.loading = "lazy";
       cover.decoding = "async";
+      cover.addEventListener("error", () => {
+        if (article.parentNode !== elements.gallery) return;
+        coverChecks.set(series.id, { path: series.cover, failed: true });
+        article.hidden = true;
+        updateGalleryEmptyState();
+      });
+      if (!article.hidden) {
+        cover.src = assetUrl(series.cover, check?.revision || coverRevision);
+      }
       const badge = createElement(
         "span",
         "manga-card__badge",
@@ -349,7 +435,9 @@
 
       article.append(coverButton, body);
       elements.gallery.append(article);
+      galleryCards.set(series.id, { article, cover });
     }
+    updateGalleryEmptyState();
   }
 
   function showHome() {
@@ -361,6 +449,10 @@
     elements.readerPages.replaceChildren();
     elements.readerProgress.style.width = "0%";
     document.title = "Yoru — Thư viện manga";
+    if (state.pendingLibraryRefresh) {
+      applyLibraryRefresh(state.pendingLibraryRefresh);
+      state.pendingLibraryRefresh = null;
+    }
     renderGallery(elements.searchInput.value);
     window.scrollTo({ top: 0, behavior: "auto" });
   }
@@ -555,6 +647,12 @@
     renderGallery(event.target.value);
   });
   elements.refreshLibrary.addEventListener("click", refreshLibrary);
+  if (hostingConfig.staticLibrary) {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") autoRefreshLibrary();
+    });
+    window.setInterval(autoRefreshLibrary, LIBRARY_REFRESH_INTERVAL);
+  }
   elements.chapterSelect.addEventListener("change", (event) => {
     if (!state.currentSeries) return;
     openReaderRoute(state.currentSeries.id, Number.parseInt(event.target.value, 10));
@@ -591,7 +689,6 @@
   });
 
   initializeTheme();
-  renderGallery();
   applyReaderWidth();
   routeFromHash();
 })();

@@ -7,11 +7,11 @@ import argparse
 import shutil
 import subprocess
 import sys
-from pathlib import Path
 
+from generate_library import OUTPUT_FILE, UI_DIR, parse_manifest
 
-UI_DIR = Path(__file__).resolve().parent.parent
 GENERATOR = UI_DIR / "scripts" / "generate_library.py"
+PRUNER = UI_DIR / "scripts" / "prune_missing_series.py"
 
 
 class UpdateError(RuntimeError):
@@ -25,6 +25,23 @@ def run(command: list[str]) -> subprocess.CompletedProcess[str]:
         raise UpdateError(f"Không chạy được {command[0]}: {exc}") from exc
 
 
+def restore_if_unchanged(previous: bytes | None) -> None:
+    if previous is None:
+        return
+    current = OUTPUT_FILE.read_bytes()
+    if previous == current:
+        return
+    try:
+        _, old_payload = parse_manifest(previous.decode("utf-8"))
+    except ValueError:
+        return
+    _, new_payload = parse_manifest(current.decode("utf-8"))
+    old_payload.pop("generatedAt", None)
+    new_payload.pop("generatedAt", None)
+    if old_payload == new_payload:
+        OUTPUT_FILE.write_bytes(previous)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Cập nhật library-data.js từ library local và publish GitHub Pages."
@@ -34,12 +51,28 @@ def main() -> int:
         action="store_true",
         help="Chỉ tạo manifest, không commit hoặc push.",
     )
+    parser.add_argument(
+        "--skip-r2-check",
+        action="store_true",
+        help="Tạo manifest từ library local mà không kiểm tra ảnh bìa trên R2.",
+    )
     args = parser.parse_args()
 
     try:
+        previous = None
+        if not args.skip_r2_check and OUTPUT_FILE.is_file():
+            previous = OUTPUT_FILE.read_bytes()
         generated = run([sys.executable, str(GENERATOR)])
         if generated.returncode != 0:
             raise UpdateError("Không tạo được library-data.js.")
+
+        if not args.skip_r2_check:
+            pruned = run([sys.executable, str(PRUNER), "--apply"])
+            if pruned.returncode != 0:
+                if previous is not None:
+                    OUTPUT_FILE.write_bytes(previous)
+                raise UpdateError("Không kiểm tra được ảnh bìa trên R2.")
+            restore_if_unchanged(previous)
 
         git = shutil.which("git")
         if not git:
@@ -62,7 +95,7 @@ def main() -> int:
             raise UpdateError("Đã commit nhưng push lên GitHub thất bại.")
         print("Đã cập nhật GitHub Pages.")
         return 0
-    except UpdateError as exc:
+    except (UpdateError, OSError, ValueError) as exc:
         print(f"LỖI: {exc}", file=sys.stderr)
         return 1
 
