@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Scan the sibling manga library and generate the hosted reader manifest."""
+"""Generate the hosted manga manifest from R2 or a local library."""
 
 from __future__ import annotations
 
@@ -7,8 +7,11 @@ import argparse
 import json
 import re
 import unicodedata
+from collections.abc import Iterable
 from datetime import datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
+
+from r2_client import R2Error, list_object_keys, load_credentials
 
 
 UI_DIR = Path(__file__).resolve().parent.parent
@@ -44,10 +47,6 @@ def natural_key(value: str) -> tuple[tuple[int, object], ...]:
     return tuple(parts)
 
 
-def library_path(path: Path) -> str:
-    return path.relative_to(LIBRARY_DIR).as_posix()
-
-
 def normalized_folder_name(value: str) -> str:
     decomposed = unicodedata.normalize("NFKD", value)
     without_accents = "".join(
@@ -57,17 +56,6 @@ def normalized_folder_name(value: str) -> str:
     )
     words = re.sub(r"[-_]+", " ", without_accents.casefold())
     return " ".join(words.split())
-
-
-def images_in(directory: Path) -> list[Path]:
-    return sorted(
-        (
-            path
-            for path in directory.iterdir()
-            if path.is_file() and path.suffix.casefold() in IMAGE_SUFFIXES
-        ),
-        key=lambda path: natural_key(path.name),
-    )
 
 
 def chapter_label(folder_name: str) -> str:
@@ -94,109 +82,114 @@ def serialize_manifest(payload: dict, header: str = MANIFEST_HEADER) -> str:
     return f"{header}\n{MANIFEST_PREFIX}{data};\n"
 
 
-def scan_library(excluded_series: set[str] | None = None) -> dict[str, object]:
-    if not LIBRARY_DIR.is_dir():
-        raise SystemExit(f"Không tìm thấy thư mục library: {LIBRARY_DIR}")
+def is_cover_folder(name: str) -> bool:
+    return normalized_folder_name(name) in COVER_FOLDER_NAMES
 
+
+def build_manifest(
+    paths: Iterable[str], excluded_series: set[str] | None = None
+) -> dict[str, object]:
+    """Build the manifest content from relative POSIX file paths."""
     excluded_series = excluded_series or set()
+    images_by_series: dict[str, dict[str, list[str]]] = {}
+    for path in paths:
+        parts = path.split("/")
+        if len(parts) not in (2, 3) or any(part in {"", ".", ".."} for part in parts):
+            continue
+        series, *folders, filename = parts
+        if series in excluded_series or PurePosixPath(filename).suffix.casefold() not in IMAGE_SUFFIXES:
+            continue
+        folder = folders[0] if folders else ""
+        images_by_series.setdefault(series, {}).setdefault(folder, []).append(filename)
+
     series_items: list[dict[str, object]] = []
-    series_directories = sorted(
-        (
-            path
-            for path in LIBRARY_DIR.iterdir()
-            if path.is_dir() and path.name not in excluded_series
-        ),
-        key=lambda path: natural_key(path.name),
-    )
-
-    for series_directory in series_directories:
+    for series in sorted(images_by_series, key=natural_key):
+        folders = images_by_series[series]
         chapters: list[dict[str, object]] = []
-        chapter_directories = sorted(
-            (
-                path
-                for path in series_directory.iterdir()
-                if path.is_dir() and CHAPTER_FOLDER_RE.match(path.name)
-            ),
-            key=lambda path: natural_key(path.name),
-        )
-        for chapter_directory in chapter_directories:
-            pages = images_in(chapter_directory)
-            if not pages:
-                continue
-            number_match = CHAPTER_NUMBER_RE.search(chapter_directory.name)
-            chapters.append(
-                {
-                    "id": chapter_directory.name,
-                    "label": chapter_label(chapter_directory.name),
-                    "number": float(number_match.group()) if number_match else None,
-                    "path": library_path(chapter_directory),
-                    "pages": [library_path(page) for page in pages],
-                }
-            )
+        folder_cover = None
+        for folder in sorted(folders, key=natural_key):
+            if CHAPTER_FOLDER_RE.match(folder):
+                chapter_path = f"{series}/{folder}"
+                number_match = CHAPTER_NUMBER_RE.search(folder)
+                chapters.append(
+                    {
+                        "id": folder,
+                        "label": chapter_label(folder),
+                        "number": float(number_match.group()) if number_match else None,
+                        "path": chapter_path,
+                        "pages": [
+                            f"{chapter_path}/{filename}"
+                            for filename in sorted(folders[folder], key=natural_key)
+                        ],
+                    }
+                )
+            elif folder_cover is None and is_cover_folder(folder):
+                filename = min(folders[folder], key=natural_key)
+                folder_cover = f"{series}/{folder}/{filename}"
 
-        cover_directories = sorted(
-            (
-                path
-                for path in series_directory.iterdir()
-                if path.is_dir()
-                and normalized_folder_name(path.name) in COVER_FOLDER_NAMES
-            ),
-            key=lambda path: natural_key(path.name),
-        )
-        folder_covers: list[Path] = []
-        for cover_directory in cover_directories:
-            folder_covers.extend(images_in(cover_directory))
-
-        explicit_covers = sorted(
-            (
-                path
-                for path in series_directory.iterdir()
-                if path.is_file()
-                and path.stem.casefold() in {"cover", "thumbnail", "thumb"}
-                and path.suffix.casefold() in IMAGE_SUFFIXES
-            ),
-            key=lambda path: natural_key(path.name),
-        )
-        cover = (
-            library_path(folder_covers[0])
-            if folder_covers
-            else (
-                library_path(explicit_covers[0])
-                if explicit_covers
-                else (chapters[0]["pages"][0] if chapters else None)
-            )
-        )
+        explicit_covers = [
+            filename
+            for filename in folders.get("", [])
+            if PurePosixPath(filename).stem.casefold() in {"cover", "thumbnail", "thumb"}
+        ]
+        cover = folder_cover
+        if not cover and explicit_covers:
+            cover = f"{series}/{min(explicit_covers, key=natural_key)}"
+        if not cover and chapters:
+            cover = chapters[0]["pages"][0]
         if not cover:
             continue
 
-        name_match = YEAR_PREFIX_RE.match(series_directory.name)
-        display_title = (
-            name_match.group("title") if name_match else series_directory.name
-        )
-        years = name_match.group("years") if name_match else ""
-        page_count = sum(len(chapter["pages"]) for chapter in chapters)
+        name_match = YEAR_PREFIX_RE.match(series)
         series_items.append(
             {
-                "id": series_directory.name,
-                "title": series_directory.name,
-                "displayTitle": display_title,
-                "years": years,
-                "path": library_path(series_directory),
+                "id": series,
+                "title": series,
+                "displayTitle": name_match.group("title") if name_match else series,
+                "years": name_match.group("years") if name_match else "",
+                "path": series,
                 "cover": cover,
-                "pageCount": page_count,
+                "pageCount": sum(len(chapter["pages"]) for chapter in chapters),
                 "chapters": chapters,
             }
         )
 
-    return {
-        "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
-        "libraryPath": "../library",
-        "series": series_items,
-    }
+    return {"libraryPath": "../library", "series": series_items}
+
+
+def local_paths(library_dir: Path, excluded_series: set[str]) -> Iterable[str]:
+    for series in library_dir.iterdir():
+        if not series.is_dir() or series.name in excluded_series:
+            continue
+        for item in series.iterdir():
+            if item.is_file():
+                yield item.relative_to(library_dir).as_posix()
+            elif (CHAPTER_FOLDER_RE.match(item.name) or is_cover_folder(item.name)) and item.is_dir():
+                for image in item.iterdir():
+                    if image.is_file():
+                        yield image.relative_to(library_dir).as_posix()
+
+
+def scan_library(
+    excluded_series: set[str] | None = None, *, library_dir: Path | None = None
+) -> dict[str, object]:
+    library_dir = library_dir if library_dir is not None else LIBRARY_DIR
+    if not library_dir.is_dir():
+        raise SystemExit(f"Không tìm thấy thư mục library: {library_dir}")
+    excluded_series = excluded_series or set()
+    return build_manifest(local_paths(library_dir, excluded_series), excluded_series)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate the hosted manga manifest.")
+    parser = argparse.ArgumentParser(description="Tạo danh mục manga từ Cloudflare R2 hoặc thư viện local.")
+    parser.add_argument(
+        "--source", choices=("r2", "local"), default="r2",
+        help="Nguồn ảnh cho danh mục (mặc định: r2).",
+    )
+    parser.add_argument(
+        "--library-dir", type=Path,
+        help="Đường dẫn thư mục ảnh khi dùng --source local.",
+    )
     parser.add_argument(
         "--exclude-series",
         action="append",
@@ -204,7 +197,19 @@ def main() -> None:
         help="Tên folder bộ truyện cần tạm ẩn; có thể dùng nhiều lần.",
     )
     args = parser.parse_args()
-    payload = scan_library(set(args.exclude_series))
+    excluded_series = set(args.exclude_series)
+    if args.source == "local":
+        payload = scan_library(excluded_series, library_dir=args.library_dir)
+    else:
+        if args.library_dir is not None:
+            parser.error("--library-dir chỉ dùng với --source local.")
+        try:
+            credentials = load_credentials()
+            keys = list_object_keys(credentials)
+        except R2Error as exc:
+            raise SystemExit(f"LỖI: {exc}") from None
+        prefix_length = len(credentials.object_prefix)
+        payload = build_manifest((key[prefix_length:] for key in keys), excluded_series)
     if OUTPUT_FILE.is_file():
         existing_text = OUTPUT_FILE.read_text(encoding="utf-8")
         try:
@@ -218,6 +223,10 @@ def main() -> None:
             print(f"{OUTPUT_FILE.name} đã khớp với library; không cần cập nhật.")
             return
 
+    payload = {
+        "generatedAt": datetime.now().astimezone().isoformat(timespec="seconds"),
+        **payload,
+    }
     OUTPUT_FILE.write_text(serialize_manifest(payload), encoding="utf-8")
     chapter_count = sum(len(series["chapters"]) for series in payload["series"])
     page_count = sum(series["pageCount"] for series in payload["series"])
