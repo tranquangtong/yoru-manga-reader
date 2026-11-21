@@ -22,8 +22,13 @@ R2 không được đưa vào Git.
 
 Cách nhanh nhất sau khi thêm, sửa hoặc xóa truyện/chapter là double-click
 `Update UI - Windows.cmd`. Trên macOS, chạy `Update UI - macOS.command`.
-Tool sẽ quét lại `library`, chỉ tạo commit khi danh mục thực sự thay đổi, rồi push
-`library-data.js` lên GitHub Pages. Việc xóa khỏi UI không xóa object cũ trên R2.
+Tool quét lại `library` và kiểm tra ảnh bìa trên R2. Bộ truyện có ảnh bìa trả về
+HTTP 404 sẽ bị loại khỏi danh mục. Nếu không xác minh được ảnh bìa, tool giữ bộ
+truyện và in cảnh báo. Tool chỉ commit và push khi danh mục thay đổi.
+
+Dùng `python scripts/update-site.py --generate-only --skip-r2-check` để tạo manifest
+chỉ từ thư viện local. Dùng `python scripts/prune_missing_series.py` để xem trước
+các bộ bị thiếu ảnh bìa. Thêm `--apply` để cập nhật manifest.
 
 Nếu vừa thêm ảnh mới, upload R2 trước rồi mới chạy updater UI:
 
@@ -31,10 +36,7 @@ Nếu vừa thêm ảnh mới, upload R2 trước rồi mới chạy updater UI:
 .\scripts\upload-library-to-r2.ps1 `
   -Destination "r2:yoru-manga/library" `
   -Execute
-python .\scripts\generate_library.py
-git add library-data.js
-git commit -m "Update manga library"
-git push
+python .\scripts\update-site.py
 ```
 
 Script dùng `rclone copy`, không dùng `sync`, nên không xóa object đang có trên R2.
